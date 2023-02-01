@@ -1,0 +1,17 @@
+---
+# Matplotlib parameters
+dpi: 96
+width: 2000
+height: 1600
+background_img: W:/Droneconia/simulation/assets/alaska_pacific.png
+# x/y limits
+extents: [-15, 15, -10, 10]
+
+# Visualizer parameters
+fps: 10
+
+# Facility icon offset from facility's actual position
+icon_offsets:
+  Facility1: [-1.0, -1.2]
+  Facility2: [-1.5, 0.0]
+  Facility3: [-1.0, -1.0]

@@ -1,0 +1,116 @@
+---
+dt: 3600 # seconds
+sim_acceleration_factor: 1 # accelerates the speed of the vehicle
+validate_actions: False
+
+# Action pruning flags
+# Flag that enables a vehicle to change destinations mid-transit
+# True = vehicles cannot change destinations
+prune_goto_action: True
+
+# Flag that stops an empty vehicle from leaving the supply depot
+prune_empty_vehicle_supply_depot: True
+
+# Flag that prevents resources from being loaded from deficient facilities
+prune_resource_loading: True
+
+# Flag that prevents an empty vehicle from visiting the most deficient facility
+prune_most_deficient_facility: False
+
+# Set some default parameters for facilities/vehicles
+# Override these values by specifying them for a particular facility/vehicle
+Defaults:
+  Facilities:
+    FieldFacilities:
+      airplane_capable: True
+      boat_capable: True
+      drone_capable: True
+      max_capacity: 9999
+      desired_resources:
+        food: 200
+        water: 200
+        equipment: 200
+      initial_resources:
+        food: 0
+        water: 0
+        equipment: 0
+      # Resource depletion:
+      # At every time step, facility may deplete resources
+      # resource_depletion_probability: float [0,1] that denotes the probability that the depletion happens
+      # resource_depletion_proportion_min: float [0,1] minimum amount of depletion (if depletion happens) as a proportion of desired resource level.
+      # resource_depletion_proportion_max: float [0,1] maximum amount of depletion (if depletion happens) as a proportion of desired resource level.
+      # resource_depletion_amount_distribution: The distribution to sample from (with min and max set above)
+      #     takes one of the following values:
+      #     - UNIFORM
+      resource_depletion_probability: 
+        food: 0
+        water: 0
+        equipment: 0
+      resource_depletion_proportion_min:
+        food: 0
+        water: 0
+        equipment: 0
+      resource_depletion_proportion_max:
+        food: 0.1
+        water: 0.1
+        equipment: 0.1
+      resource_depletion_amount_distribution:
+        food: UNIFORM
+        water: UNIFORM
+        equipment: UNIFORM
+
+  Vehicles:
+    Planes:
+        # Conversion: 664659 meters / 20.615528128088304 map units = 32240.697200204806 meters/map unit
+        vehicle_speed: 0.00554 # map units / second 
+        destination_tolerance: 0.06
+        distance_traveled: 0.0
+        resource_max_capacity: 200
+        initial_resources:
+          food: 0
+          water: 0
+          equipment: 0
+        num_bins:
+          food: 3
+          water: 3
+          equipment: 3
+    Boats:
+        vehicle_speed: 0.00039890886 # map units / second 
+        destination_tolerance: 0.06
+        distance_traveled: 0.0
+        resource_max_capacity: 400
+        initial_resources:
+          food: 0
+          water: 0
+          equipment: 0
+        num_bins:
+          food: 3
+          water: 3
+          equipment: 3
+    Drones: []
+
+Facilities:
+  SupplyDepots:
+    - identifier: SupplyDepot1
+      location: [9.5, 5]
+  FieldFacilities:
+    - identifier: Facility1
+      location: [-9.5, -3]
+    - identifier: Facility2
+      location: [-10.75, -0.75]
+      boat_capable: False
+    - identifier: Facility3
+      location: [5.5, -5.5]
+      drone_capable: False
+
+Vehicles:
+  Planes:
+    - identifier: PLANE1
+      init_loc: [9.5, 5]
+      destination: SupplyDepot1
+      # Conversion: 664659 meters / 20.615528128088304 map units = 32240.697200204806 meters/map unit
+  Boats: 
+    - identifier: BOAT1
+      init_loc: [9.5, 5]
+      destination: SupplyDepot1
+  Drones: []

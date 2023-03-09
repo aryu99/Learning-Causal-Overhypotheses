@@ -89,7 +89,7 @@ class ABCdisj(DisjunctiveHypothesis):
 class CausalEnv_v0(gym.Env):
     def __init__(self, env_config: Dict[str, Any]) -> None:
         """
-        Representation of the Blicket environment, based on the exeperiments presente in the causal learning paper.
+        Representation of the Blicket environment, based on the exeperiments presented in the causal learning paper.
 
         Args:
             env_config (Dict[str, Any]): A dictionary representing the environment configuration.
@@ -156,12 +156,12 @@ class CausalEnv_v0(gym.Env):
                 ACconj,
                 BCconj,
                 # ABCconj,
-                Adisj,
-                Bdisj,
-                Cdisj,
-                # ABdisj,
-                # ACdisj,
-                # BCdisj,
+                # Adisj,
+                # Bdisj,
+                # Cdisj,
+                ABdisj,
+                ACdisj,
+                BCdisj,
                 # ABCdisj,
             ],
         )

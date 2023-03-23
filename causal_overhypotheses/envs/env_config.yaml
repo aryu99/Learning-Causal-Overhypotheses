@@ -12,6 +12,5 @@ quiz_disabled_steps: -1
 hypotheses: |
   from causal_env_v0 import ABdisj, BCdisj, ACdisj, Adisj
   hypotheses = [
-    ACdisj,
-    ABdisj
+    ACdisj
   ]

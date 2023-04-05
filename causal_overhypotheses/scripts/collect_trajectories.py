@@ -3,7 +3,10 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../envs'))
 import argparse
-from stable_baselines import A2C, PPO2
+
+from stable_baselines3.a2c.a2c import A2C
+from stable_baselines3.ppo.ppo import PPO as PPO2
+
 from causal_env_v0 import CausalEnv_v0
 import tqdm
 import numpy as np
@@ -47,6 +50,7 @@ def main(args):
 
             # Step the environment
             n_obs, reward, done, info = env.step(action)
+            print(n_obs, reward, done, info)
 
             steps.append((obs, action, reward, n_obs, done))
             obs = n_obs

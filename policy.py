@@ -51,6 +51,31 @@ class RandomPolicy(Policy):
         return self.action_space.sample()
 
 
+class FixedInterventionPolicy(Policy):
+    """Policy that performs fixed interventions on graph (actions)
+
+    Args:
+        action_space (gym.Space): action space
+
+    Attributes:
+        action_space (gym.Space): action space
+    """
+
+    def __init__(self, *, action_space: gym.Space, value=None) -> None:
+        self.action_space = action_space
+        self.value = value if value is not None else action_space.low
+
+    def __call__(self, *, state: np.ndarray) -> np.ndarray:
+        """Perform action given state
+
+        Args:
+            state (np.ndarray): state of agent
+
+        Returns:
+            np.ndarray: action
+        """
+        return self.value
+
 
 class CausalPolicy(Policy):
     """_summary_

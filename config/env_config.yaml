@@ -6,11 +6,14 @@ step_reward_penalty: 0.01
 detector_reward: 1
 quiz_positive_reward: 1
 quiz_negative_reward: -1
-max_steps: 20
+max_steps: 50
 blicket_dim: 3
 quiz_disabled_steps: -1
 hypotheses: |
-  from causal_env_v0 import ABdisj, BCdisj, ACdisj, Adisj
+  from causal_env_v0 import *
   hypotheses = [
-    ACdisj
+    Adisj,
+    Bdisj,
+    ABconj,
+    BCconj
   ]

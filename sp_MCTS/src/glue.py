@@ -4,58 +4,21 @@ import copy
 import numpy as np
 import itertools
 
-import sys
-sys.path.append('../../simulation/src')
+from causal_env_v0 import CausalEnv_v0
+import yaml, pickle
+from easydict import EasyDict
 
-from load_config import load_config_files
-import state as state
-
-# Sim Initialization
-
-SIM_CONFIG_FILE = 'basecase.yaml'
-VIZ_CONFIG_FILE = 'basecase_viz.yaml'
 
 # Load facilities
-(
-    simulation,
-    visualizer,
-    vehicles, # vehicles
-    facilities,
-    _, # sim_config
-    _, # viz_config
-) = load_config_files(SIM_CONFIG_FILE, VIZ_CONFIG_FILE)
+with open('config/env_config.yaml', "r") as f:
+        env_config = EasyDict(yaml.load(f, Loader=yaml.FullLoader))
+        ldict = {}
+        exec(env_config.hypotheses, globals(), ldict)
+        env_config.hypotheses = ldict["hypotheses"]
 
-num_vechicles = len(vehicles)
-num_facilities = len(facilities) - 1
-desired_resources = [facility.desired_resource_levels for facility in facilities if facility.identifier != 'SupplyDepot1']
+env_config = env_config
+env = CausalEnv_v0(env_config)
 
-def get_sim_state():
-    '''
-    Returns the current state of the simulation
-    '''
-    print("\n Getting the current state \n")
-    return simulation.get_game_state()
-
-def run_visualizer(game_states, save_to_file=False, saveGS = False):
-    '''
-    Runs the visualizer on the given game states
-
-    Parameters
-    ----------
-    game_states : list of game states
-        The game states to visualize
-    save_to_file : bool
-        Whether to save the visualization to a file
-    saveGS : bool
-        Whether to save the game states to a pickle file
-    '''
-    if saveGS:
-        simulation.save_to_file('test_0.pkl', gs_list = game_states)
-    print("\n Running the visualizer \n")
-    # visualizer.run(game_states, save_to_file=save_to_file, dir_name = 'W:/Droneconia/simulation/images/test1')
-
-def run_save(game_states):
-    simulation.save_to_file('test.pkl', gs_list = game_states)
 # ------------------------------------------------------------------------------------------------------------------------------
 
 # Simulator API
@@ -71,19 +34,20 @@ def GetNextState(CurrState):
     -------
     NextState : game state
     '''
-    simulation.reset(CurrState)
-    Actions = simulation.get_vehicle_actions()
-    Action = {}
 
-    # Get a random action for each vehicle
-    for key,value in Actions.items():
-        i = np.random.randint(0, len(value))
-        Action[key] = value[i]
+    if CurrState == 'Disj':
+        possibleStates = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+    elif CurrState == 'Conj':
+        possibleStates = [[1, 1, 0], [1, 0, 1]]
+    elif CurrState == 'All':
+        possibleStates = [[1, 1, 1]]
+    elif CurrState == 'Null':
+        possibleStates = [[0, 0, 0]]
     
-    # Get the next state
-    NextState = simulation.next_state(Action)  
-
-    return NextState
+    i = np.random.randint(0, len(possibleStates))
+    NextState = possibleStates[i]
+    obs, reward, _, _ = env.step(NextState)
+    return obs[-1]
 
 def EvalNextStates(CurrState):
     '''
@@ -99,26 +63,26 @@ def EvalNextStates(CurrState):
     '''
     print("\n Evaluating the new states \n")
     State = copy.deepcopy(CurrState)
+
+    childStates = []
+
+    if len(State) == 4: # Root State
+        possibleStates = ['Disj', 'Conj', 'All', 'Null']
+        for i in possibleStates:
+            childStates.append([i])
+
+    else: # Non-Root State - Second Level:
+        if State == 'Disj':
+            possibleStates = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+        elif State == 'Conj':
+            possibleStates = [[1, 1, 0], [1, 0, 1], [0, 1, 1]]
+        elif State == 'All':
+            possibleStates = [[1, 1, 1]]
+        elif State == 'Null':
+            possibleStates = [[0, 0, 0]]
+        
+        for i in possibleStates:
+            childStates.append(i)
     
-    simulation.reset(State)
-    Actions = simulation.get_vehicle_actions()
-
-    # Get all possible combinations of actions for all vehicles
-    storeActions = []    
-    jointActionList = list(Actions.values())
-    combinatonList = [p for p in itertools.product(*jointActionList)]
-    vehicleList = list(Actions.keys())    
-    
-    for i in range(len(combinatonList)):
-        storeAction = {}
-        for j in range(len(vehicleList)):        
-            storeAction[vehicleList[j]] = combinatonList[i][j]
-        storeActions.append(storeAction)
-
-    # Get the next state for each combination of actions
-    NextStates = []
-    for m in range(len(storeActions)):
-        simulation.reset(State)        
-        NextStates.append(simulation.next_state(storeActions[m])) 
-
-    return NextStates
+    return childStates
+        

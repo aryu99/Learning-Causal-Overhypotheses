@@ -103,7 +103,7 @@ class MCTS:
                         Child.state), "UTC: inf",)
                 return Child
 
-        MaxWeight = -100000.0
+        MaxWeight = -np.inf
         for Child in Node.children:
             Weight = Child.sputc
             if (self.verbose):
@@ -250,29 +250,22 @@ class MCTS:
         '''
         num_sim = MCTS.num_sim
         i = 0
-        simResult = 0
-        while i<num_sim:
-            CurrentState = copy.deepcopy(Node.state)
-            print ("\n ---SIMULATION--- \n")
+        CurrentState = copy.deepcopy(Node.state)
+        print ("\n ---SIMULATION--- \n")
+        if (self.verbose):
+            print ("Begin Simulation")
+
+        relativeLevel = 1
+        Result = 0
+        while (nd.Node.IsTerminal(relativeLevel)):
+            relativeLevel += 1.0
+            obs = glue.GetNextState(CurrentState)
+            Result += nd.Node.GetResult(obs)
             if (self.verbose):
-                print ("Begin Simulation")
+                print ("CurrentState:", nd.Node.GetStateRepresentation(CurrentState))
+                nd.Node.PrintTablesScores(CurrentState)
 
-            relativeLevel = 1
-            Result = nd.Node.GetResult(utils.calcRes(CurrentState)["TOTAL"], utils.calcDistCost(CurrentState))
-            # Perform simulation.
-            while (nd.Node.IsTerminal(relativeLevel)):
-                relativeLevel += 1.0
-                CurrentState = glue.GetNextState(CurrentState)
-                Result += nd.Node.GetResult(utils.calcRes(CurrentState)["TOTAL"], utils.calcDistCost(CurrentState))
-                if (self.verbose):
-                    print ("CurrentState:", nd.Node.GetStateRepresentation(CurrentState))
-                    nd.Node.PrintTablesScores(CurrentState)
-
-            Result = nd.Node.GetResult(utils.calcRes(CurrentState)["TOTAL"], utils.calcDistCost(CurrentState))
-            simResult += Result
-            i += 1
-        return simResult/num_sim
-
+        return Result
     #-----------------------------------------------------------------------#
     # Description:
     #	Performs the backpropagation phase of the MCTS.
@@ -463,7 +456,7 @@ class MCTS:
             Node: Best child of the root node
         '''
         Node = self.root
-        MaxWeight = -100000000000.0
+        MaxWeight = -np.inf
         if (len(Node.children) == 0):
             return Node
         for Child in Node.children: 

@@ -1,4 +1,4 @@
-import utils
+from utils import calc_result
 
 class Node:
     w_res = 1
@@ -61,7 +61,10 @@ class Node:
         -------
         True if the node is terminal, False otherwise (bool)
         '''
-        return utils.facilitiesAtLevel(node.state)
+        if len(node.state) == 3:
+            return True
+        else:
+            return False
 
     @staticmethod
     def IsTerminal(level:int):
@@ -79,7 +82,7 @@ class Node:
         return level < Node.levelTerminal
 
     @staticmethod
-    def GetResult(resCost, distCost):
+    def GetResult(obs):
         '''
         Returns the result of the simulation
 
@@ -92,7 +95,7 @@ class Node:
         -------
         Result of the simulation (float)
         '''
-        return Node.w_res*resCost - Node.w_dist*distCost
+        return calc_result(obs)
 
 
     @staticmethod

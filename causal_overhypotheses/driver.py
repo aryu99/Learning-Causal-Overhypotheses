@@ -1,3 +1,6 @@
+from sb3_contrib.qrdqn.qrdqn import QRDQN
+from sb3_contrib.ppo_recurrent.ppo_recurrent import RecurrentPPO
+
 from stable_baselines3.a2c.a2c import A2C
 from stable_baselines3.ppo.ppo import PPO as PPO2
 from envs.causal_env_v0 import CausalEnv_v0, ABconj, ACconj, BCconj, Adisj, Bdisj, Cdisj
@@ -152,7 +155,8 @@ def main(args):
     # NOTE: LSTM policies are missing from stable_baselines3. We need to imp- #
     #       lement our own LSTM policy class!
     ###########################################################################
-    assert 'lstm' in args.policy, "LSTM policy is missing from stable_baselines3, only mlp policy supported!"
+    # print("Policy", args.policy)
+    # assert 'lstm' in args.policy, "LSTM policy is missing from stable_baselines3, only mlp policy supported!"
     if args.policy == 'mlp':
         policy = "MlpPolicy"
         save_name = f'{args.alg}_{args.policy}'
@@ -173,6 +177,10 @@ def main(args):
         model = A2C(policy, env, verbose=1, tensorboard_log="./logs/{}".format(save_name))
     elif args.alg == 'ppo2':
         model = PPO2(policy, env, verbose=1, tensorboard_log="./logs/{}".format(save_name))
+    elif args.alg == 'qrdqn':
+        model = QRDQN(policy, env, verbose=1, tensorboard_log="./logs/{}".format(save_name))
+    elif args.alg == 'rppo':
+        model = RecurrentPPO(policy, env, verbose=1, tensorboard_log="./logs/{}".format(save_name))
     else:
         raise ValueError('Unsupported algorithm: {}'.format(args.alg))
 

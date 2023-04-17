@@ -1,12 +1,10 @@
-num_samples: 1000
-labels: [A, B, C, L]
-
 # eval conf
-n_eval: 1
+n_episodes: 1
 
 # Env conf
 env:
-  reward_structure: quiz
+  n_blickets: 3
+  reward_structure: baseline
   add_step_reward_penalty: False
   add_detector_state_reward_for_quiz: False
   step_reward_penalty: 0.01
@@ -15,9 +13,10 @@ env:
   quiz_negative_reward: -1
   max_steps: 20
   blicket_dim: 3
-  quiz_disabled_steps: 5                       # forced exploration steps
+  quiz_disabled_steps: -1
   hypotheses: |
-    from causal_env_v0 import ABdisj, BCdisj, ACdisj, Adisj
+    from causal_env_v0 import *
     hypotheses = [
-      Adisj
+      Cdisj,
+      ACconj
     ]

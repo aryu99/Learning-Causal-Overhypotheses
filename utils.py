@@ -4,6 +4,35 @@ from tqdm import trange
 from causal_env_v0 import CausalEnv_v0
 from policy import Policy
 
+from os.path import join
+import bz2
+import pickle
+import _pickle as cPickle
+
+from pathlib import Path
+
+
+def compress_pickle(fname: str, data):
+    """Compress & save data as pickle file at given path
+    Args:
+        fname (str): File path
+        data (Any): Serializable object
+    """
+    with bz2.BZ2File(fname, "wb") as f:
+        cPickle.dump(data, f)
+
+
+def decompress_pickle(fname: str):
+    """Decompress pickle file at given path
+    Args:
+        fname (str): Path to file
+    Returns:
+        Serializable object
+    """
+    data = bz2.BZ2File(fname, "rb")
+    data = cPickle.load(data)
+    return data
+
 
 def collect_observational_data(
     *,
@@ -47,28 +76,58 @@ def collect_observational_data(
             t_step += 1
 
 
-def evaluate_agent(*, policy: Policy, env_cfg: dict, n_eval: int) -> list:
+def make_dirs(directory: str):
+    """Make dir path if it does not exist"""
+    Path(directory).mkdir(parents=True, exist_ok=True)
+
+class Logger:
+    def __init__(self, *, log_dir: str) -> None:
+        self.log_dir = log_dir
+        make_dirs(self.log_dir)
+        self.log = []
+        self.current_log = []
+
+    def reset(self, **kwargs) -> None:
+        self.current_param = kwargs
+        self.current_log = []
+
+    def push(self) -> None:
+        self.log.append([self.current_param, self.current_log])
+
+    def step(self, **kwargs) -> None:
+        self.current_log.append(kwargs)
+
+    def save(self, *, file_name: str) -> None:
+        compress_pickle(join(self.log_dir, file_name), self.log)
+
+
+def evaluate_agent(*, policy: Policy, env_cfg: dict, n_eval: int, log: Logger):
     """Evaluate agent using given policy
 
     Args:
         policy (Policy): Policy to evaluate
         env_cfg (dict): environment configuration
         n_eval (int): number of episodes to evaluate for
+        log (Logger): Logger to store evaluation information
 
     Returns:
         list: rewards for each episode
+        Logger: Logger with evaluation information
     """
     env = CausalEnv_v0(env_cfg)
     eps_rew = []
     for e in trange(n_eval):
         state = env.reset()
         policy.reset()
+        log.reset(hyp=env._current_gt_hypothesis)
         ep_rew = 0
         done = False
         while not done:
-            action = policy(state=state)
+            action, hyp = policy(state=state)
             next_state, reward, done, info = env.step(action)
+            log.step(state=state, reward=reward, hyp=hyp)
             state = next_state
             ep_rew += reward
+        log.push()
         eps_rew.append(ep_rew)
-    return eps_rew
+    return eps_rew, log

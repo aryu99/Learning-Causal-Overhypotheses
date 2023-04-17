@@ -3,12 +3,17 @@ from causal_env_v0 import CausalEnv_v0
 
 from hypotheses import *
 from policy import CausalPolicy
-from utils import evaluate_agent
+from utils import evaluate_agent, Logger
+
+POLICIES = {
+    'CausalPolicy': CausalPolicy
+}
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("Causal Overhypotheses")
     parser.add_argument("-e", "--env_config", required=True, help="path to env config")
     parser.add_argument("-x", "--exp_config", required=True, help="path to exp config")
+    parser.add_argument("-m", "--model", required=True, help="Model to use. One of: CausalPolicy")
     args = parser.parse_args()
 
     # Load env config
@@ -30,12 +35,16 @@ if __name__ == "__main__":
         exp_config.env.hypotheses = ldict["hypotheses"]
 
     # Initialize policy with overhypotheses clusters
-    c_agent = CausalPolicy(
+    c_agent = POLICIES[args.model](
         obs_shape=obs_shape,
-        action_shape=action_shape,
+        action_space=env.action_space,
         clusters=[SINGLE, DOUBLE, NONE, ALL],
     )
     exp_config.env.n_blickets = env_config.n_blickets
 
+    log = Logger(log_dir='logs/')
+
     # Evaluate Agent
-    evaluate_agent(policy=c_agent, env_cfg=exp_config.env, n_eval=exp_config.n_eval)
+    _, log = evaluate_agent(policy=c_agent, env_cfg=exp_config.env, n_eval=exp_config.n_eval, log=log)
+
+    log.save(file_name='log.pkl')

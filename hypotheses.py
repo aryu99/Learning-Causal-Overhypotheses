@@ -62,6 +62,16 @@ DOUBLE = [AB, BC, CA]
 NONE = [N]
 ALL = [ABC]
 
+HYPS = {
+    'A': A,
+    'B': B,
+    'C': C,
+    'AB': AB,
+    'BC': BC,
+    'AC': CA,
+    'CA': CA,
+    'ABC': ABC,
+}
 
 def gen_rand_hypotheses_structures(num_nodes: int, num_hypotheses: int = 1) -> list:
     """Generate random [num_nodes x num_nodes] adjacency graphs representing

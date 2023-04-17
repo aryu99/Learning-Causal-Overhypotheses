@@ -116,7 +116,7 @@ class CausalPolicy(Policy):
         )
         data = pd.DataFrame(copy.deepcopy(self.obs_buffer))
 
-        if state.shape[-1] > self.obs_shape and self.step_cnt > 0:
+        if state.shape[-1] == self.obs_shape and self.step_cnt > 0:
             # idx = 0
             # fig, ax = plt.subplots(nrows=2, ncols=8)
             for cluster in self.clusters:
@@ -132,13 +132,13 @@ class CausalPolicy(Policy):
 
                     print(nx.adjacency_matrix(output_graph).todense())
 
-                    output_graph = cdt.utils.graph.remove_indirect_links(
-                        output_graph, alg="aracne"
-                    )
-                    print(
-                        "New skeleton (alg=aracne): ",
-                        nx.adjacency_matrix(output_graph).todense(),
-                    )
+                    # output_graph = cdt.utils.graph.remove_indirect_links(
+                    #     output_graph, alg="aracne"
+                    # )
+                    # print(
+                    #     "New skeleton (alg=aracne): ",
+                    #     nx.adjacency_matrix(output_graph).todense(),
+                    # )
 
                     # nx.draw_networkx(copy.deepcopy(graph), ax=ax[0, idx], font_size=8, label='template')
                     # nx.draw_networkx(copy.deepcopy(output_graph), ax=ax[1, idx], font_size=8, label='output')
@@ -157,6 +157,8 @@ class CausalPolicy(Policy):
         """Reset policy"""
         # self.model = cdt.causality.graph.GES()
         self.model = cdt.causality.pairwise.ANM()
+
+        self.scores = []
         self.obs_buffer = np.empty((0, self.obs_shape))
         self.action_space = gym.spaces.MultiDiscrete([2, 2, 2])
         self.step_cnt = 0

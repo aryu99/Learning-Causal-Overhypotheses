@@ -1,5 +1,5 @@
 # eval conf
-n_episodes: 1
+n_episodes: 50
 
 # Env conf
 env:
@@ -17,6 +17,10 @@ env:
   hypotheses: |
     from causal_env_v0 import *
     hypotheses = [
+      # Adisj,
+      # Bdisj,
+      # ABconj,
+      # BCconj,
       Cdisj,
       ACconj
     ]

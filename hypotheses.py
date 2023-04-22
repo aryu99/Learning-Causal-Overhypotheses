@@ -57,11 +57,29 @@ N = np.array(
      [0, 0, 0, 0]]
 )
 
+FULL = np.array(
+    [[0, 1, 1, 1],
+     [0, 0, 1, 1],
+     [0, 0, 0, 1],
+     [0, 0, 0, 0]]
+)
+
 SINGLE = [A, B, C]
 DOUBLE = [AB, BC, CA]
 NONE = [N]
 ALL = [ABC]
 
+HYPS = {
+    "A": A,
+    "B": B,
+    "C": C,
+    "AB": AB,
+    "BC": BC,
+    "AC": CA,
+    "CA": CA,
+    "ABC": ABC,
+    "FULL": FULL,
+}
 
 def gen_rand_hypotheses_structures(num_nodes: int, num_hypotheses: int = 1) -> list:
     """Generate random [num_nodes x num_nodes] adjacency graphs representing
@@ -76,5 +94,6 @@ def gen_rand_hypotheses_structures(num_nodes: int, num_hypotheses: int = 1) -> l
         list: List of hypotheses
     """
     return [
-        np.triu(np.random.randint(2, size=(num_nodes, num_nodes)), 1) for _ in range(num_hypotheses)
+        np.triu(np.random.randint(2, size=(num_nodes, num_nodes)), 1)
+        for _ in range(num_hypotheses)
     ]

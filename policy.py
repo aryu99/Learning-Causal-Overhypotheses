@@ -1,8 +1,13 @@
 import numpy as np
 import pandas as pd
 import networkx as nx
-import cdt, copy, gym
+import copy, gym
 
+import jax
+from jax import numpy as jnp
+
+from scipy.special import softmax
+from hypotheses import FULL, HYPS
 
 class Policy:
     """Abstract class for policy"""
@@ -78,29 +83,21 @@ class FixedInterventionPolicy(Policy):
 
 
 class CausalPolicy(Policy):
-    """_summary_
+    """Simple structure discovery with score-based methods, random interventions
 
     Args:
         obs_shape (int): observation shape
         action_shape (int): action shape
-        clusters (list): list of hypotheses clustered by overhypotheses
     """
 
-    def __init__(self, *, obs_shape: int, action_shape: int, clusters: list) -> None:
+    def __init__(
+        self, *, obs_shape: int, action_shape: int, graph: np.ndarray, model
+    ) -> None:
         super().__init__()
-        self.clusters = []
-        hyp_cnt = 0
-        for cluster in clusters:
-            k = []
-            for graph in cluster:
-                gph = nx.from_numpy_array(
-                    graph, parallel_edges=False, create_using=nx.Graph
-                )
-                k.append(gph)
-                hyp_cnt += 1
-            self.clusters.append(k)
         self.obs_shape = obs_shape
         self.action_shape = action_shape
+        self.graph = graph
+        self.model = model
 
     def __call__(self, *, state: np.ndarray) -> np.ndarray:
         """Perform action given state
@@ -117,46 +114,371 @@ class CausalPolicy(Policy):
         data = pd.DataFrame(copy.deepcopy(self.obs_buffer))
 
         if state.shape[-1] > self.obs_shape and self.step_cnt > 0:
-            # idx = 0
-            # fig, ax = plt.subplots(nrows=2, ncols=8)
-            for cluster in self.clusters:
-                for graph in cluster:
-                    # output_graph = self.model.orient_undirected_graph(
-                    #     data,
-                    #     graph,
-                    # )
-                    output_graph = self.model.orient_graph(
-                        data,
-                        graph,
-                    )
-
-                    print(nx.adjacency_matrix(output_graph).todense())
-
-                    output_graph = cdt.utils.graph.remove_indirect_links(
-                        output_graph, alg="aracne"
-                    )
-                    print(
-                        "New skeleton (alg=aracne): ",
-                        nx.adjacency_matrix(output_graph).todense(),
-                    )
-
-                    # nx.draw_networkx(copy.deepcopy(graph), ax=ax[0, idx], font_size=8, label='template')
-                    # nx.draw_networkx(copy.deepcopy(output_graph), ax=ax[1, idx], font_size=8, label='output')
-                    # idx += 1
-
-            # plt.tight_layout()
-            # plt.savefig('{}.png'.format(self.step_cnt))
+            output_graph = self.model.create_graph_from_data(data)
 
             self.step_cnt += 1
-            return self.action_space.sample()
+            return (
+                self.action_space.sample(),
+                nx.adjacency_matrix(output_graph).todense(),
+            )
         else:
             self.step_cnt += 1
-            return self.action_space.sample()
+            return self.action_space.sample(), np.ones((4, 4)).astype(int)
 
     def reset(self) -> None:
         """Reset policy"""
-        # self.model = cdt.causality.graph.GES()
-        self.model = cdt.causality.pairwise.ANM()
         self.obs_buffer = np.empty((0, self.obs_shape))
         self.action_space = gym.spaces.MultiDiscrete([2, 2, 2])
+        self.step_cnt = 0
+
+
+class EGreedyLLPolicy:
+    """Simple math:`\\epsilon`-greedy policy based on maximum log-likelihood math:`\\log p(D | G, \\Theta)`.
+
+    Args:
+        inference_model (dibs.inference.Dibs): inference model
+        theta (np.ndarray): sampled parameters
+        gs (np.ndarray): sampled graphs
+        inter_mask (np.ndarray): intervention masks
+        action_shape (int): action shape
+        n_step (int): number of steps to look behind
+        force_exploration (int): number of steps to force exploration,
+        buffer (class): buffer to store intervention data
+        best_particles (dict): dictionary of best particles for each hypotheses
+        topk (int): number of best particles to consider wrt. log-likelihood
+    """
+
+    def __init__(
+        self,
+        *,
+        inference_model,
+        thetas,
+        gs,
+        inter_mask,
+        action_space: int,
+        n_step: int,
+        force_exploration: int,
+        buffer,
+        best_particles: dict,
+        topk: int,
+    ) -> None:
+        self.inference_model = inference_model
+        self.thetas = thetas
+        self.gs = gs
+        self.inter_mask = jnp.array(inter_mask)
+        self.action_space = action_space
+        self.n_step = n_step
+        self.force_exploration = force_exploration
+        self.buffer = buffer
+        self.best_particles = best_particles
+        self.K = topk
+
+        self.log_d_g_t = jax.vmap(
+            lambda x, single_g, single_theta: self.inference_model.log_likelihood(
+                x=x,
+                theta=single_theta,
+                g=single_g,
+                interv_targets=self.inter_mask[: x.shape[0], ...],
+            ),
+            (None, 0, 0),
+            0,
+        )
+
+        self.log_d_g_t_score = jax.vmap(
+            lambda x, d, single_g, single_theta: self.inference_model.log_likelihood(
+                x=jnp.concatenate([d, x], axis=0),
+                theta=single_theta,
+                g=single_g,
+                interv_targets=self.inter_mask[: d.shape[0] + 1, ...],
+            ),
+            (0, None, 0, 0),
+            0,
+        )
+
+    def __call__(self, *, state: np.ndarray) -> np.ndarray:
+        """Perform action given state
+
+        Args:
+            state (np.ndarray): state of agent
+
+        Returns:
+            np.ndarray: action
+        """
+        # Perform random intervention if we are in the first few steps
+        if self.force_exploration > self.step_cnt:
+            self.step_cnt += 1
+            return self.action_space.sample(), FULL
+
+        else:
+            # Update buffer and compute log likelihood of data given sampled parameters
+            self.buffer(state=state)
+
+            # Compute the log likelihood of the data given the sampled parameters
+            log_d_g_t_list = self.log_d_g_t(
+                jnp.array(self.buffer.data), self.gs, self.thetas
+            )
+            log_d_g_t_list = np.array(log_d_g_t_list)
+
+            # Pick the topk particle that maximizes the log likelihood
+            mll = np.argpartition(log_d_g_t_list, -self.K)[-self.K :][::-1]
+
+            # Belief set over hypotheses
+            belief_set = set()
+            for key in self.best_particles:
+                for ml in mll:
+                    if ml in self.best_particles[key]:
+                        belief_set.add(key)
+            belief_set = list(belief_set)
+            # print(f"Belief set: {belief_set}")
+
+            self.step_cnt += 1
+            return self.construct_action(mll, log_d_g_t_list[mll])
+
+    def construct_action(self, mll, log_d_g_t_belief_set):
+        """Construct action given belief set and particle index
+
+        Args:
+            mll (np.ndarray): index of particles that maximize the log likelihood
+            log_d_g_t_belief_set: Log likelihood of data given the belief set
+            best_particles (dict): dictionary of best particles for each hypotheses
+
+        Returns:
+            action: intervention action
+        """
+        # pick a hypothesis from the belief set
+        hyp = np.random.choice(mll, p=softmax(np.exp(log_d_g_t_belief_set)))
+
+        z_idx = np.random.choice(["A", "B", "C", "AB", "AC", "BC", "ABC"])
+        for key in self.best_particles.keys():
+            if hyp in self.best_particles[key]:
+                z_idx = key
+                break
+
+        action = np.random.randint(2, size=len(self.action_space))
+        val = np.random.randint(0, 2)
+        for idx, symbol in enumerate(["A", "B", "C"]):
+            if symbol in z_idx:
+                action[idx] = val
+        return action, HYPS[z_idx]
+
+    def reset(self, *args, **kwargs) -> None:
+        """Reset policy"""
+        self.buffer.reset()
+        self.step_cnt = 0
+
+
+class RandomLLPolicy:
+    """Simple random policy based on maximum log-likelihood math:`\\log p(D | G, \\Theta)`.
+
+    Args:
+        inference_model (dibs.inference.Dibs): inference model
+        theta (np.ndarray): sampled parameters
+        gs (np.ndarray): sampled graphs
+        inter_mask (np.ndarray): intervention masks
+        action_shape (int): action shape
+        n_step (int): number of steps to look behind
+        force_exploration (int): number of steps to force exploration,
+        buffer (class): buffer to store intervention data
+        best_particles (dict): dictionary of best particles for each hypotheses
+    """
+
+    def __init__(
+        self,
+        *,
+        inference_model,
+        thetas,
+        gs,
+        inter_mask,
+        action_space: int,
+        n_step: int,
+        force_exploration: int,
+        buffer,
+        best_particles: dict,
+    ) -> None:
+        self.inference_model = inference_model
+        self.thetas = thetas
+        self.gs = gs
+        self.inter_mask = jnp.array(inter_mask)
+        self.action_space = action_space
+        self.n_step = n_step
+        self.force_exploration = force_exploration
+        self.buffer = buffer
+        self.best_particles = best_particles
+
+        self.log_d_g_t = jax.vmap(
+            lambda x, single_g, single_theta: self.inference_model.log_likelihood(
+                x=x,
+                theta=single_theta,
+                g=single_g,
+                interv_targets=self.inter_mask[: x.shape[0], ...],
+            ),
+            (None, 0, 0),
+            0,
+        )
+
+    def __call__(self, *, state: np.ndarray) -> np.ndarray:
+        """Perform action given state
+
+        Args:
+            state (np.ndarray): state of agent
+
+        Returns:
+            np.ndarray: action
+        """
+        # Perform random intervention if we are in the first few steps
+        if self.force_exploration > self.step_cnt:
+            self.step_cnt += 1
+            return self.action_space.sample(), FULL
+
+        else:
+            # Update buffer and compute log likelihood of data given sampled parameters
+            self.buffer(state=state)
+
+            # Compute the log likelihood of the data given the sampled parameters
+            log_d_g_t_list = self.log_d_g_t(
+                jnp.array(self.buffer.data), self.gs, self.thetas
+            )
+            log_d_g_t_list = np.array(log_d_g_t_list)
+
+            # Pick the topk particle that maximizes the log likelihood
+            mll = np.argmax(log_d_g_t_list)
+
+            # Belief set over hypotheses
+            belief_set = set()
+            for key in self.best_particles:
+                if mll in self.best_particles[key]:
+                    belief_set.add(key)
+            belief_set = list(belief_set)
+            if belief_set == []:
+                belief_set = ['FULL']
+            # print(f"Belief set: {belief_set}")
+
+            self.step_cnt += 1
+            return self.action_space.sample(), HYPS[np.random.choice(belief_set)]
+
+    def reset(self, *args, **kwargs) -> None:
+        """Reset policy"""
+        self.buffer.reset()
+        self.step_cnt = 0
+
+
+class ActiveLLPolicy:
+    """Simple active policy based on maximum log-likelihood math:`\\log p(D | G, \\Theta)`.
+
+    Args:
+        inference_model (dibs.inference.Dibs): inference model
+        theta (np.ndarray): sampled parameters
+        gs (np.ndarray): sampled graphs
+        inter_mask (np.ndarray): intervention masks
+        action_shape (int): action shape
+        n_step (int): number of steps to look behind
+        force_exploration (int): number of steps to force exploration,
+        buffer (class): buffer to store intervention data
+        best_particles (dict): dictionary of best particles for each hypotheses
+    """
+
+    def __init__(
+        self,
+        *,
+        inference_model,
+        thetas,
+        gs,
+        inter_mask,
+        action_space: int,
+        n_step: int,
+        force_exploration: int,
+        buffer,
+        best_particles: dict,
+    ) -> None:
+        self.inference_model = inference_model
+        self.thetas = thetas
+        self.gs = gs
+        self.inter_mask = jnp.array(inter_mask)
+        self.action_space = action_space
+        self.n_step = n_step
+        self.force_exploration = force_exploration
+        self.buffer = buffer
+        self.best_particles = best_particles
+
+        self.log_d_g_t = jax.vmap(
+            lambda x, single_g, single_theta: self.inference_model.log_likelihood(
+                x=x,
+                theta=single_theta,
+                g=single_g,
+                interv_targets=self.inter_mask[: x.shape[0], ...],
+            ),
+            (None, 0, 0),
+            0,
+        )
+
+        self.log_d_g_t_score = jax.vmap(
+            lambda x, d, single_g, single_theta: self.inference_model.log_likelihood(
+                x=jnp.concatenate([d, x], axis=0),
+                theta=single_theta,
+                g=single_g,
+                interv_targets=self.inter_mask[: d.shape[0] + 1, ...],
+            ),
+            (0, None, 0, 0),
+            0,
+        )
+
+    def __call__(self, *, state: np.ndarray) -> np.ndarray:
+        """Perform action given state
+
+        Args:
+            state (np.ndarray): state of agent
+
+        Returns:
+            np.ndarray: action
+        """
+        # Perform random intervention if we are in the first few steps
+        if self.force_exploration > self.step_cnt:
+            self.step_cnt += 1
+            return self.action_space.sample(), None
+
+        else:
+            # Update buffer and compute log likelihood of data given sampled parameters
+            self.buffer(state=state)
+
+            # Compute the log likelihood of the data given the sampled parameters
+            log_d_g_t_list = self.log_d_g_t(
+                jnp.array(self.buffer.data), self.gs, self.thetas
+            )
+            log_d_g_t_list = np.array(log_d_g_t_list)
+
+            # Pick the topk particle that maximizes the log likelihood
+            mll = np.argpartition(log_d_g_t_list, -self.K)[-self.K :][::-1]
+
+            # Belief set over hypotheses
+            belief_set = set()
+            for key in self.best_particles:
+                for ml in mll:
+                    if ml in self.best_particles[key]:
+                        belief_set.add(key)
+            belief_set = list(belief_set)
+
+            self.step_cnt += 1
+            return self.construct_action(particle_indices=mll)
+
+    def construct_action(self, particle_indices):
+        """Construct action given belief set and particle index
+
+        Args:
+            particle_indices (np.ndarray): particle indices
+
+        Returns:
+            action: intervention action
+        """
+
+        # filter the particles that are the best
+        gs_top, thetas_top = self.gs[particle_indices], self.thetas[particle_indices]
+
+        # create a random collection of interventions
+        interventions = np.random.choice(2, size=(len(particle_indices), 1))
+
+        return action, z_idx
+
+    def reset(self, *args, **kwargs) -> None:
+        """Reset policy"""
+        self.buffer.reset()
         self.step_cnt = 0

@@ -1,4 +1,4 @@
-from utils import calc_result
+from glue import calcResult
 
 class Node:
     w_res = 1
@@ -49,7 +49,7 @@ class Node:
         return Level
 
     @staticmethod
-    def IsNodeTerminal(node):
+    def IsNodeTerminal(node, input_as_state=False):
         '''
         Checks if a given node is terminal
 
@@ -61,6 +61,11 @@ class Node:
         -------
         True if the node is terminal, False otherwise (bool)
         '''
+        if input_as_state:
+            if len(node) == 3:
+                return True
+            else:
+                return False
         if len(node.state) == 3:
             return True
         else:
@@ -82,7 +87,7 @@ class Node:
         return level < Node.levelTerminal
 
     @staticmethod
-    def GetResult(obs):
+    def GetResult(action):
         '''
         Returns the result of the simulation
 
@@ -95,7 +100,16 @@ class Node:
         -------
         Result of the simulation (float)
         '''
-        return calc_result(obs)
+        num_objects = 0
+        for i in action:
+            if i == 1:
+                num_objects += 1
+        print("Action: ", action)
+        print("Num Objects: ", num_objects)
+        if num_objects == 0:
+            return 0
+        else:
+            return calcResult(action)/num_objects
 
 
     @staticmethod

@@ -4,7 +4,11 @@ Project for UT Austin ECE 381V Causal Reinforcement Learning
 ## Usage
 
 ```(bash)
-$ python dibs_scipt.py [-h] [--num_samples NUM_SAMPLES] [--num_particles NUM_PARTICLES] [--n_vars N_VARS] [--particle_dim PARTICLE_DIM] [--num_codebook_per_node NUM_CODEBOOK_PER_NODE] --method {VQDiBS,JointDiBS} [--plot_dir PLOT_DIR] --env_config ENV_CONFIG [--exp_config EXP_CONFIG]
+$ python dibs_scipt.py [-h] [--num_samples NUM_SAMPLES] \
+                      [--num_particles NUM_PARTICLES] [--n_vars N_VARS] \
+                      [--particle_dim PARTICLE_DIM] [--num_codebook_per_node NUM_CODEBOOK_PER_NODE] \
+                      --method {VQDiBS,JointDiBS} [--plot_dir PLOT_DIR] \
+                      --env_config ENV_CONFIG [--exp_config EXP_CONFIG]
 
 arguments:
   -h, --help            show this help message and exit

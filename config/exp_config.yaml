@@ -17,10 +17,10 @@ env:
   hypotheses: |
     from causal_env_v0 import *
     hypotheses = [
-      Adisj,
-      Bdisj,
-      ABconj,
-      BCconj,
+      # Adisj,
+      # Bdisj,
+      # ABconj,
+      # BCconj,
       Cdisj,
       ACconj
     ]

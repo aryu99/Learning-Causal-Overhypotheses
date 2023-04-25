@@ -34,20 +34,26 @@ def GetNextState(CurrState):
     -------
     NextState : game state
     '''
+    print("\n Getting the next state \n")
+    print("Current State: ", CurrState)
 
-    if CurrState == 'Disj':
+    CurrentState = copy.deepcopy(CurrState[0])
+
+
+    if CurrentState == 'Disj':
         possibleStates = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
-    elif CurrState == 'Conj':
+    elif CurrentState == 'Conj':
         possibleStates = [[1, 1, 0], [1, 0, 1]]
-    elif CurrState == 'All':
+    elif CurrentState == 'All':
         possibleStates = [[1, 1, 1]]
-    elif CurrState == 'Null':
+    elif CurrentState == 'Null':
         possibleStates = [[0, 0, 0]]
+
+    print("Possible States: ", possibleStates)
     
     i = np.random.randint(0, len(possibleStates))
     NextState = possibleStates[i]
-    obs, reward, _, _ = env.step(NextState)
-    return obs[-1]
+    return NextState
 
 def EvalNextStates(CurrState):
     '''
@@ -72,17 +78,27 @@ def EvalNextStates(CurrState):
             childStates.append([i])
 
     else: # Non-Root State - Second Level:
-        if State == 'Disj':
+        if State == ['Disj']:
             possibleStates = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
-        elif State == 'Conj':
+        elif State == ['Conj']:
             possibleStates = [[1, 1, 0], [1, 0, 1], [0, 1, 1]]
-        elif State == 'All':
+        elif State == ['All']:
             possibleStates = [[1, 1, 1]]
-        elif State == 'Null':
+        elif State == ['Null']:
             possibleStates = [[0, 0, 0]]
         
         for i in possibleStates:
             childStates.append(i)
     
     return childStates
-        
+
+
+def calcResult(action):
+
+    # Get the result of the action
+    print("Action: ", action)
+    obs, _, _, _ = env.step(action)
+    print("Observation: ", obs)
+    result = obs[-1]
+    print("Result: ", result)
+    return result

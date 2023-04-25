@@ -248,22 +248,18 @@ class MCTS:
         float
             Average score/result of the simulations.
         '''
-        num_sim = MCTS.num_sim
-        i = 0
         CurrentState = copy.deepcopy(Node.state)
         print ("\n ---SIMULATION--- \n")
+        print ("Current Outside Loop State: ", CurrentState)
         if (self.verbose):
             print ("Begin Simulation")
 
-        relativeLevel = 1
         Result = 0
-        while (nd.Node.IsTerminal(relativeLevel)):
-            relativeLevel += 1.0
-            obs = glue.GetNextState(CurrentState)
-            Result += nd.Node.GetResult(obs)
-            if (self.verbose):
-                print ("CurrentState:", nd.Node.GetStateRepresentation(CurrentState))
-                nd.Node.PrintTablesScores(CurrentState)
+        while not nd.Node.IsNodeTerminal(CurrentState, input_as_state=True):
+            print("Current State: ", CurrentState)
+            CurrentState = glue.GetNextState(CurrentState)
+
+        Result += nd.Node.GetResult(CurrentState)
 
         return Result
     #-----------------------------------------------------------------------#
@@ -478,30 +474,20 @@ class MCTS:
     #	Runs the SP-MCTS.
     # MaxIter	- Maximum iterations to run the search algorithm.
     #-----------------------------------------------------------------------#
-    def Run(self, MaxIteration=5, numActions=1, del_children=False, limit_del = True, clear_root = False, load = False, time_thresh = 1200):
-        if load == False:
-            # This handles the case where the tree is not loaded from a file
-            self.storeGameStates = [self.root.state]
-            self.counter = 0
-            self.MaxIter = MaxIteration
-            self.store_cost = []
-            self.store_dist = []
-            self.store_res = []
-            self.store_res_food = []
-            self.store_res_water = []
-            self.store_res_equip = []
-            self.store_action_id = []
-            self.action_timeThresh = time_thresh/numActions
-        while (self.counter < numActions):
+    def Run(self, MaxIteration=5):            # This handles the case where the tree is not loaded from a file
+        
+        self.MaxIter = MaxIteration
+        self.storeGameStates = [self.root.state]
+
+        while not nd.Node.IsNodeTerminal(self.root):
             # Loop for each action
-            start_time = utils.timer()
             for i in range(int(self.MaxIter)):
                 # Loop for each iteration for an action
-                print ("\n===== Begin iteration: {} for Action No. {} =====".format(i, self.counter))
+                # print ("\n===== Begin iteration: {} for Action No. {} =====".format(i, self.counter))
                 if (self.verbose):
                     print ("\n===== Begin iteration:", i, "=====")
                 X = self.Selection()
-
+                print("X:", X.state)
                 Y = self.Expansion(X)
                 if (Y):
                     Result = self.Simulation(Y)
@@ -520,16 +506,10 @@ class MCTS:
                 
                 # This is if we reach terminal state
                 else:
-                    Result = nd.Node.GetResult(utils.calcRes(X.state)["TOTAL"], utils.calcDistCost(X.state))
+                    Result = nd.Node.GetResult(X.state)
                     if (self.verbose):
                         print ("Result: ", Result)
                     self.Backpropagation(X, Result)
-
-                curr_time = utils.timer()
-
-                # stop loop if time exceeds threshold
-                if (curr_time - start_time) > self.action_timeThresh:
-                    break   
                     
             #     self.PrintResult(Result)
             # self.PrintTree()
@@ -538,41 +518,42 @@ class MCTS:
 
             
             self.storeGameStates.append(self.BestChild().state) # Get the best child and append it to the list of game states
+            print("Best child: {}", self.BestChild())
             self.root = self.BestChild() # Set the root to the best child
 
-            # Handle storage for plotting
-            self.store_cost.append(nd.Node.GetResult(utils.calcRes(self.root.state)["TOTAL"], utils.calcDistCost(self.root.state)))
-            self.store_dist.append(nd.Node.w_dist*utils.calcDistCost(self.root.state))
-            self.store_res.append(nd.Node.w_res*utils.calcRes(self.root.state)["TOTAL"])
-            self.store_res_food.append(utils.calcRes(self.root.state)["FOOD"])
-            self.store_res_water.append(utils.calcRes(self.root.state)["WATER"])
-            self.store_res_equip.append(utils.calcRes(self.root.state)["EQUIPMENT"])
-            self.store_action_id.append(self.counter)
-            self.counter += 1
+        #     # Handle storage for plotting
+        #     self.store_cost.append(nd.Node.GetResult(utils.calcRes(self.root.state)["TOTAL"], utils.calcDistCost(self.root.state)))
+        #     self.store_dist.append(nd.Node.w_dist*utils.calcDistCost(self.root.state))
+        #     self.store_res.append(nd.Node.w_res*utils.calcRes(self.root.state)["TOTAL"])
+        #     self.store_res_food.append(utils.calcRes(self.root.state)["FOOD"])
+        #     self.store_res_water.append(utils.calcRes(self.root.state)["WATER"])
+        #     self.store_res_equip.append(utils.calcRes(self.root.state)["EQUIPMENT"])
+        #     self.store_action_id.append(self.counter)
+        #     self.counter += 1
 
-            # delete tree from memory
-            print('Clearing memory by deleting the parents')
-            if clear_root:
-                self.root.visits = 0
-                self.root.sputc = 0
-            if del_children and limit_del:
-                self.delete_children(self.root, numActions+1)
-            elif del_children and not limit_del:
-                self.root.children = []
-            self.root.parent = None
-            print('root visited: ', self.root.visits)
+        #     # delete tree from memory
+        #     print('Clearing memory by deleting the parents')
+        #     if clear_root:
+        #         self.root.visits = 0
+        #         self.root.sputc = 0
+        #     if del_children and limit_del:
+        #         self.delete_children(self.root, numActions+1)
+        #     elif del_children and not limit_del:
+        #         self.root.children = []
+        #     self.root.parent = None
+        #     print('root visited: ', self.root.visits)
 
-            # Handle number of iteration for next action (MaxIteration - number of times that node has been visited)
-            if not clear_root:
-                self.MaxIter = MaxIteration - self.root.visits
+        #     # Handle number of iteration for next action (MaxIteration - number of times that node has been visited)
+        #     if not clear_root:
+        #         self.MaxIter = MaxIteration - self.root.visits
 
-            self.save_tree('tree.pkl') # Save the tree to a pickle file
+        #     self.save_tree('tree.pkl') # Save the tree to a pickle file
         
-        # Plot the results
-        utils.plotter(self.store_action_id, self.store_cost, self.store_dist, self.store_res, self.store_res_food, self.store_res_water, self.store_res_equip,
-        max_cost=utils.calcRes(self.root.state)["MAX_RES"], name='cost_components_long_different_res_weights')
-        count = 0
-        for i in self.storeGameStates:
-            utils.SaveResult('\n State: {}'.format(i))
-            count += 1
-            print("\n Action State {}: {}".format(count, glue.state.decompose_game_state(i, glue.num_vechicles, glue.num_facilities)))
+        # # Plot the results
+        # utils.plotter(self.store_action_id, self.store_cost, self.store_dist, self.store_res, self.store_res_food, self.store_res_water, self.store_res_equip,
+        # max_cost=utils.calcRes(self.root.state)["MAX_RES"], name='cost_components_long_different_res_weights')
+        # count = 0
+        # for i in self.storeGameStates:
+        #     utils.SaveResult('\n State: {}'.format(i))
+        #     count += 1
+        #     print("\n Action State {}: {}".format(count, glue.state.decompose_game_state(i, glue.num_vechicles, glue.num_facilities)))

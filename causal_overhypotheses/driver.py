@@ -1,5 +1,5 @@
 from sb3_contrib.qrdqn.qrdqn import QRDQN
-from sb3_contrib.ppo_recurrent.ppo_recurrent import RecurrentPPO
+from sb3_contrib.ppo_recurrent.ppo_recurrent import RecurrentPPO, MlpLstmPolicy, RecurrentActorCriticPolicy
 
 from stable_baselines3.a2c.a2c import A2C
 from stable_baselines3.ppo.ppo import PPO as PPO2
@@ -11,6 +11,24 @@ from functools import partialmethod
 
 import torch, random
 import numpy as np
+import gym
+
+class GaussianNoiseEnv(gym.Wrapper):
+    def __init__(self, env, noise_level=0.1):
+        super().__init__(env)
+        self.noise_level = noise_level
+
+    def step(self, action):
+        obs, rew, done, info = self.env.step(action)
+        obs = obs.astype(np.float32)
+        obs += self.noise_level * np.random.randn(*obs.shape)
+        return obs, rew, done, info
+
+    def reset(self):
+        obs = self.env.reset()
+        obs = obs.astype(np.float32)
+        obs += self.noise_level * np.random.randn(*obs.shape)
+        return obs
 
 def set_global_seeds(seed):
     """
@@ -80,7 +98,7 @@ def _get_environments(holdout_strategy: str, quiz_disabled_steps: int = -1, rewa
                     "quiz_disabled_steps": qd,
                     "hypotheses": [
                         ABconj,
-                        ACconj,
+                        BCconj,
                         Adisj,
                         Bdisj,
                     ]
@@ -88,7 +106,7 @@ def _get_environments(holdout_strategy: str, quiz_disabled_steps: int = -1, rewa
             else:
                 raise ValueError('Unsupported holdout strategy: {}'.format(holdout_strategy))
             env.seed(seed + rank)
-            return env
+            return GaussianNoiseEnv(env)
         set_global_seeds(seed)
         return _init
 
@@ -135,13 +153,13 @@ def _get_environments(holdout_strategy: str, quiz_disabled_steps: int = -1, rewa
             "reward_structure": reward_structure,
             "hypotheses": [
                 Cdisj,
-                BCconj,
+                ACconj,
             ]
         })
     else:
         raise ValueError('Unsupported holdout strategy: {}'.format(holdout_strategy))
 
-    return env, eval_env
+    return env, GaussianNoiseEnv(eval_env)
 
 
 def main(args):
@@ -161,7 +179,6 @@ def main(args):
         policy = "MlpPolicy"
         save_name = f'{args.alg}_{args.policy}'
     elif args.policy == 'mlp_lstm':
-        policy = partialclass("MlpLstmPolicy", n_lstm=args.lstm_units)
         save_name = f'{args.alg}_{args.policy}_{args.lstm_units}'
     elif args.policy == 'mlp_lnlstm':
         policy = partialclass("MlpLnLstmPolicy", n_lstm=args.lstm_units)
@@ -175,12 +192,13 @@ def main(args):
 
     if args.alg == 'a2c':
         model = A2C(policy, env, verbose=1, tensorboard_log="./logs/{}".format(save_name))
-    elif args.alg == 'ppo2':
+    elif args.alg == 'ppo2_':
         model = PPO2(policy, env, verbose=1, tensorboard_log="./logs/{}".format(save_name))
     elif args.alg == 'qrdqn':
         model = QRDQN(policy, env, verbose=1, tensorboard_log="./logs/{}".format(save_name))
-    elif args.alg == 'rppo':
-        model = RecurrentPPO(policy, env, verbose=1, tensorboard_log="./logs/{}".format(save_name))
+    elif args.alg == 'ppo2':
+        # policy = RecurrentActorCriticPolicy(env.observation_space, env.action_space, lr_schedule=lambda x : 3e-4, lstm_hidden_size=args.lstm_units)
+        model = RecurrentPPO("MlpLstmPolicy", env, verbose=1, tensorboard_log="./logs/{}".format(save_name))
     else:
         raise ValueError('Unsupported algorithm: {}'.format(args.alg))
 

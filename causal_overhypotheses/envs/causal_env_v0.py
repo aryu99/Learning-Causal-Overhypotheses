@@ -110,6 +110,7 @@ class CausalEnv_v0(gym.Env):
                 "Invalid reward structure: {}, must be one of (baseline, quiz, quiz-type, quiz-typeonly)".format(self._reward_structure)
             )
 
+        self.seed = lambda x: random.seed(x)
         # Setup penalties and reward structures
         self._add_step_reward_penalty = env_config.get("add_step_reward_penalty", False)
         self._add_detector_state_reward_for_quiz = env_config.get("add_detector_state_reward_for_quiz", False)
@@ -152,16 +153,16 @@ class CausalEnv_v0(gym.Env):
         self._hypotheses: List[Hypothesis] = env_config.get(
             "hypotheses",
             [
-                ABconj,
-                ACconj,
-                BCconj,
+                # ABconj,
+                # ACconj,
+                # BCconj,
                 # ABCconj,
-                # Adisj,
-                # Bdisj,
-                # Cdisj,
-                ABdisj,
-                ACdisj,
-                BCdisj,
+                Adisj,
+                Bdisj,
+                Cdisj,
+                # ABdisj,
+                # ACdisj,
+                # BCdisj,
                 # ABCdisj,
             ],
         )

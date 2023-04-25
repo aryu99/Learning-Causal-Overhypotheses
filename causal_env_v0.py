@@ -361,4 +361,7 @@ class CausalEnv_v0(gym.Env):
         assert observation is not None
 
         self._steps += 1
-        return observation, reward, done, info
+        if done:
+            return observation, reward, done, {'episode': {'r': reward, 'l': self._steps}}
+        else:
+            return observation, reward, done, info

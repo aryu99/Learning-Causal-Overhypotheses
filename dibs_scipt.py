@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import plotly.express as px
-import yaml, gym
+import gym
 from adjustText import adjust_text
 
 from sklearn.manifold import TSNE
@@ -20,9 +20,11 @@ from causal_env_v0 import CausalEnv_v0
 from dibs.inference import JointDiBS, VQDiBS
 from dibs.models import DenseNonlinearGaussian
 from dibs.target import make_graph_model
+from dibs.metrics import expected_shd, neg_ave_log_likelihood, threshold_metrics
+
 from hypotheses import *
 
-from policy import RandomLLPolicy, RandomPolicy, EGreedyLLPolicy
+from policy import RandomLLPolicy, RandomPolicy, EGreedyLLPolicy, BALDPolicy
 from utils import (
     Logger,
     class_to_hyp,
@@ -32,6 +34,9 @@ from utils import (
     make_data_env,
     make_dirs,
     History,
+    GaussianNoiseEnv,
+    read_experiment_config,
+    read_env_config,
 )
 
 SMALL_SIZE = 12
@@ -47,43 +52,7 @@ plt.rc("ytick", labelsize=SMALL_SIZE)  # fontsize of the tick labels
 plt.rc("legend", fontsize=SMALL_SIZE)  # legend fontsize
 plt.rc("figure", titlesize=BIGGER_SIZE)  # fontsize of the figure title
 
-
-class GaussianNoiseEnv(gym.Wrapper):
-    def __init__(self, env, noise_level=0.1):
-        super().__init__(env)
-        self.noise_level = noise_level
-
-    def step(self, action):
-        obs, rew, done, info = self.env.step(action)
-        obs = obs.astype(np.float32)
-        obs += self.noise_level * np.random.randn(*obs.shape)
-        return obs, rew, done, info
-
-    def reset(self):
-        obs = self.env.reset()
-        obs = obs.astype(np.float32)
-        obs += self.noise_level * np.random.randn(*obs.shape)
-        self._current_gt_hypothesis = self.env._current_gt_hypothesis
-        return obs
-
-
-def read_experiment_config(path: str) -> dict:
-    """Read experiment configuration from file.
-
-    Args:
-        path (str): path to experiment configuration file
-
-    Returns:
-        dict: experiment configuration
-    """
-    with open(path, "r") as f:
-        exp_config = EasyDict(yaml.load(f, Loader=yaml.FullLoader))
-        ldict = {}
-        exec(exp_config["env"]["hypotheses"], globals(), ldict)
-        exp_config["env"]["hypotheses"] = ldict["hypotheses"]
-
-    return exp_config
-
+GRAPH_ARRAY = [*SINGLE, *DOUBLE, *ALL]
 
 def reshape_theta(theta, num_particles):
     """Reshape theta to be a list of length num_particles, where each element
@@ -113,9 +82,7 @@ def compute_log_likelihood(z, t=2000):
     """
     num_particles = z.shape[0]
     p_g_z = {}
-    for name, G in zip(
-        ["A", "B", "C", "AB", "BC", "CA", "ABC"], [A, B, C, AB, BC, CA, ABC]
-    ):
+    for name, G in zip(GRAPH_LABELS, GRAPH_ARRAY):
         p_g_z[name] = np.zeros((num_particles,))
         for i in range(num_particles):
             p_g_z[name][i] = dibs.latent_log_prob(G, z[i, ...], t=t)
@@ -127,9 +94,7 @@ def compute_log_likelihood(z, t=2000):
 def compute_best_particles(p_g_z, k=10):
     """Identify the best particles for each hypotheses"""
     best_particles = {}
-    for name, _ in zip(
-        ["A", "B", "C", "AB", "BC", "CA", "ABC"], [A, B, C, AB, BC, CA, ABC]
-    ):
+    for name, _ in zip(GRAPH_LABELS, GRAPH_ARRAY):
         idx = np.argpartition(p_g_z[name], -k)[-k:][::-1]
         print(f"Top {k} particles for {name}: {idx}")
         best_particles[name] = idx
@@ -142,7 +107,7 @@ def plot_marginal_log_likelihoods(gs, theta, *, method, save_path):
     for idx, logp_z in enumerate(dibs_mixture.logp):
         print(f"log p(G, theta | z_{idx}): {logp_z}")
 
-    fig, ax = plt.subplots(1, 1, figsize=(10, 5), dpi=300)
+    _, ax = plt.subplots(1, 1, figsize=(10, 5), dpi=300)
     cmap = plt.get_cmap("tab10")
     colors = cmap(np.arange(len(best_particles)))
 
@@ -173,10 +138,18 @@ def plot_marginal_log_likelihoods(gs, theta, *, method, save_path):
     plt.savefig(
         join(save_path, f"{method}-mixture_log_likelihoods.png"), bbox_inches="tight"
     )
-    # plt.show()
 
 
-def construct_node_embeddings(u, v):
+def compute_node_embedding_cosine_distance(u, v):
+    """Compute the cosine distance between node embeddings
+
+    Args:
+        u: U matrix
+        v: V matrix
+
+    Returns:
+        np.ndarray: Cosine distance of shape (num_particles, n_vars, n_vars)
+    """
     num_particles, n_vars, _ = u.shape
     grid = np.zeros((num_particles, n_vars, n_vars))
 
@@ -196,6 +169,7 @@ def construct_node_embeddings(u, v):
 
 
 def plot_grid(grid, method, save_path, n_cols=7, size=2.5):
+    """Plot a grid of matrices"""
     N = grid.shape[0]
     n_rows = N // n_cols
     if N % n_cols:
@@ -216,15 +190,14 @@ def plot_grid(grid, method, save_path, n_cols=7, size=2.5):
 
     plt.tight_layout()
     plt.savefig(join(save_path, f"{method}-node_embeddings.png"), bbox_inches="tight")
-    # plt.show()
 
 
 def eval_dibs(gs, theta):
-    from dibs.metrics import expected_shd, neg_ave_log_likelihood, threshold_metrics
-
+    """Evaluate DiBS and DiBS+ on SHD, AUROC and NLL"""
     dibs_empirical = dibs.get_empirical(gs, theta)
     dibs_mixture = dibs.get_mixture(gs, theta)
-    for descr, dist in [("DiBS ", dibs_empirical), ("DiBS+", dibs_mixture)]:
+    results = {'DiBS': {}, 'DiBS+': {}}
+    for descr, dist in [("DiBS", dibs_empirical), ("DiBS+", dibs_mixture)]:
 
         eshd = expected_shd(dist=dist, g=data.g)
         auroc = threshold_metrics(dist=dist, g=data.g)["roc_auc"]
@@ -233,16 +206,16 @@ def eval_dibs(gs, theta):
             x=data.x_ho,
             eltwise_log_likelihood=dibs.eltwise_log_likelihood_observ,
         )
-
+        results[descr]['eshd'], results[descr]['auroc'], results[descr]['negll'] = eshd, auroc, negll
         print(
             f"{descr} |  E-SHD: {eshd:4.1f}    AUROC: {auroc:5.2f}    neg. MLL {negll:5.2f}"
         )
+    return results
 
 
 def particle_to_u_v_z_idx(z):
     """Convert particles Z to components U and V. Stack as single vector.
     Also return particle indices.
-
 
     Returns:
         X: node embeddings
@@ -250,7 +223,6 @@ def particle_to_u_v_z_idx(z):
         Zidx: particle indices
     """
     num_particles, n_vars, particle_dim, _ = z.shape
-
     u, v = z[..., 0], z[..., 1]
 
     X = np.zeros((num_particles, n_vars, particle_dim * 2))
@@ -320,14 +292,12 @@ def plot_embeddings(
             join(save_path, f"{dibs_method}-{method}-{prefix}-projection.png"),
             bbox_inches="tight",
         )
-    # plt.show()
 
 
 def particle_to_single_vec(z):
     """Convert particles Z to components U and V. Stack as single vector.
     Also return particle indices."""
     num_particles, n_vars, particle_dim, _ = z.shape
-
     u, v = z[..., 0], z[..., 1]
 
     X = np.zeros((num_particles, n_vars, particle_dim * 2))
@@ -508,9 +478,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--env_config", type=str, required=True, help="Environment config file"
     )
-    parser.add_argument(
-        "--exp_config", type=str, help="Experiment config file"
-    )
+    parser.add_argument("--exp_config", type=str, help="Experiment config file")
     args = parser.parse_args()
     make_dirs(args.plot_dir)
 
@@ -519,13 +487,7 @@ if __name__ == "__main__":
 
     key, subk = random.split(key)
 
-    # Load env config
-    with open(args.env_config, "r") as f:
-        env_config = EasyDict(yaml.load(f, Loader=yaml.FullLoader))
-        ldict = {}
-        exec(env_config.hypotheses, globals(), ldict)
-        env_config.hypotheses = ldict["hypotheses"]
-
+    env_config = read_env_config(args.env_config)
     env = GaussianNoiseEnv(CausalEnv_v0(env_config))
     random_policy = RandomPolicy(action_space=env.action_space)
 
@@ -587,27 +549,25 @@ if __name__ == "__main__":
         steps=2000,
         callback_every=500,
         return_z=True,
-        callback=None,#dibs.visualize_callback(ipython=False, save_path=args.plot_dir),
+        callback=None,  # dibs.visualize_callback(ipython=False, save_path=args.plot_dir),
         n_dim_particles=args.particle_dim,
     )
 
-    thetas = reshape_theta(theta, args.num_particles)
-
-    # make_dirs(f"{args.method}-params")
-    # compress_pickle(f"{args.method}-params/{args.method}-z.pkl", z)
-    # compress_pickle(f"{args.method}-params/{args.method}-gs.pkl", gs)
-    # compress_pickle(f"{args.method}-params/{args.method}-thetas.pkl", thetas)
-    # quit()
-
     u, v = z[..., 0], z[..., 1]
     scores = jnp.einsum("...ik,...jk->...ij", u, v)
-    grid = construct_node_embeddings(u, v)
-    plot_grid(grid, method=args.method, save_path=args.plot_dir)
+    plot_grid(compute_node_embedding_cosine_distance(u, v), method=args.method, save_path=args.plot_dir)
     eval_dibs(gs, theta)
 
     plt.style.use("seaborn-v0_8-darkgrid")
     thetas = reshape_theta(theta, args.num_particles)
     best_particles = compute_best_particles(compute_log_likelihood(z, t=2000), k=5)
+
+    print(f"Best particles: {best_particles}")
+    make_dirs(f"{args.method}-params")
+    compress_pickle(f"{args.method}-params/{args.method}-z.pkl", z)
+    compress_pickle(f"{args.method}-params/{args.method}-gs.pkl", gs)
+    compress_pickle(f"{args.method}-params/{args.method}-thetas.pkl", thetas)
+
     plot_marginal_log_likelihoods(
         gs, theta, method=args.method, save_path=args.plot_dir
     )
@@ -619,9 +579,10 @@ if __name__ == "__main__":
     exp_config = read_experiment_config(args.exp_config)
     eval_env = GaussianNoiseEnv(CausalEnv_v0(exp_config.env))
 
-    policy_greedy = EGreedyLLPolicy(
+    policy_bald = BALDPolicy(
         inference_model=dibs.inference_model,
-        thetas=theta,
+        theta=theta,
+        thetas=thetas,
         gs=gs,
         inter_mask=inter_mask,
         action_space=env.action_space,
@@ -629,16 +590,38 @@ if __name__ == "__main__":
         force_exploration=5,
         buffer=History(n_vars=env.observation_space.shape[0]),
         best_particles=best_particles,
-        topk=2,
+        topk=6,
+        key=subk,
     )
 
     _, log = evaluate_policy(
-        policy=policy_greedy,
+        policy=policy_bald,
         env=eval_env,
         n_episodes=exp_config.get("n_episodes", 10),
-        log=Logger(log_dir=f"./logs/greedy_{args.method}/"),
+        log=Logger(log_dir=f"./logs/bald_{args.method}/"),
     )
-    log.save(file_name="greedy.pkl")
+    log.save(file_name="bald.pkl")
+
+    # policy_greedy = EGreedyLLPolicy(
+    #     inference_model=dibs.inference_model,
+    #     thetas=theta,
+    #     gs=gs,
+    #     inter_mask=inter_mask,
+    #     action_space=env.action_space,
+    #     n_step=5,
+    #     force_exploration=5,
+    #     buffer=History(n_vars=env.observation_space.shape[0]),
+    #     best_particles=best_particles,
+    #     topk=2,
+    # )
+
+    # _, log = evaluate_policy(
+    #     policy=policy_greedy,
+    #     env=eval_env,
+    #     n_episodes=exp_config.get("n_episodes", 10),
+    #     log=Logger(log_dir=f"./logs/greedy_{args.method}/"),
+    # )
+    # log.save(file_name="greedy.pkl")
 
     policy_random = RandomLLPolicy(
         inference_model=dibs.inference_model,

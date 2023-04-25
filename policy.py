@@ -1,13 +1,30 @@
 import numpy as np
 import pandas as pd
 import networkx as nx
-import copy, gym
+import copy, gym, igraph
 
 import jax
 from jax import numpy as jnp
 
 from scipy.special import softmax
 from hypotheses import FULL, HYPS
+
+
+# Full set of interventions
+INTERV = jnp.array(
+    [
+        [0, 0, 0],
+        [0, 0, 1],
+        [0, 1, 0],
+        [0, 1, 1],
+        [1, 0, 0],
+        [1, 0, 1],
+        [1, 1, 0],
+        [1, 1, 1]
+    ],
+    dtype=jnp.float32,
+)
+
 
 class Policy:
     """Abstract class for policy"""
@@ -362,8 +379,8 @@ class RandomLLPolicy:
         self.step_cnt = 0
 
 
-class ActiveLLPolicy:
-    """Simple active policy based on maximum log-likelihood math:`\\log p(D | G, \\Theta)`.
+class BALDPolicy:
+    """Simple math:`\\epsilon`-greedy policy based on maximum log-likelihood math:`\\log p(D | G, \\Theta)`.
 
     Args:
         inference_model (dibs.inference.Dibs): inference model
@@ -375,12 +392,14 @@ class ActiveLLPolicy:
         force_exploration (int): number of steps to force exploration,
         buffer (class): buffer to store intervention data
         best_particles (dict): dictionary of best particles for each hypotheses
+        topk (int): number of best particles to consider wrt. log-likelihood
     """
 
     def __init__(
         self,
         *,
         inference_model,
+        theta,
         thetas,
         gs,
         inter_mask,
@@ -389,8 +408,11 @@ class ActiveLLPolicy:
         force_exploration: int,
         buffer,
         best_particles: dict,
+        topk: int,
+        key
     ) -> None:
         self.inference_model = inference_model
+        self.theta = theta
         self.thetas = thetas
         self.gs = gs
         self.inter_mask = jnp.array(inter_mask)
@@ -399,6 +421,8 @@ class ActiveLLPolicy:
         self.force_exploration = force_exploration
         self.buffer = buffer
         self.best_particles = best_particles
+        self.K = topk
+        self.key = key
 
         self.log_d_g_t = jax.vmap(
             lambda x, single_g, single_theta: self.inference_model.log_likelihood(
@@ -411,14 +435,16 @@ class ActiveLLPolicy:
             0,
         )
 
-        self.log_d_g_t_score = jax.vmap(
-            lambda x, d, single_g, single_theta: self.inference_model.log_likelihood(
-                x=jnp.concatenate([d, x], axis=0),
+        self.rollout_exp_obs = jax.vmap(
+            lambda key, single_g, single_theta, interv_val: self.inference_model.sample_obs(
+                key=key,
+                n_samples=1,
+                g=igraph.Graph.Adjacency(single_g.tolist()),
                 theta=single_theta,
-                g=single_g,
-                interv_targets=self.inter_mask[: d.shape[0] + 1, ...],
+                toporder=None,
+                interv={i: v for i, v in zip(range(single_g.shape[0]), interv_val)},
             ),
-            (0, None, 0, 0),
+            (None, None, None, 0),
             0,
         )
 
@@ -434,7 +460,7 @@ class ActiveLLPolicy:
         # Perform random intervention if we are in the first few steps
         if self.force_exploration > self.step_cnt:
             self.step_cnt += 1
-            return self.action_space.sample(), None
+            return self.action_space.sample(), FULL
 
         else:
             # Update buffer and compute log likelihood of data given sampled parameters
@@ -442,41 +468,31 @@ class ActiveLLPolicy:
 
             # Compute the log likelihood of the data given the sampled parameters
             log_d_g_t_list = self.log_d_g_t(
-                jnp.array(self.buffer.data), self.gs, self.thetas
+                jnp.array(self.buffer.data), self.gs, self.theta
             )
             log_d_g_t_list = np.array(log_d_g_t_list)
 
             # Pick the topk particle that maximizes the log likelihood
             mll = np.argpartition(log_d_g_t_list, -self.K)[-self.K :][::-1]
 
-            # Belief set over hypotheses
-            belief_set = set()
-            for key in self.best_particles:
-                for ml in mll:
-                    if ml in self.best_particles[key]:
-                        belief_set.add(key)
-            belief_set = list(belief_set)
+            output = np.empty((0, 8))
+            for z_idx in mll:
+                self.key, subk = jax.random.split(self.key)
+                out = self.rollout_exp_obs(subk, self.gs[z_idx], self.thetas[z_idx], INTERV)
+                output = np.vstack((output, np.where(out[None, :, 0, -1] > 0.5, 1, 0)))
+            inter = INTERV[np.argmax(output.var(axis=0, ddof=1)), ...]
+
+            # pick a hypothesis from the belief set
+            hyp = np.random.choice(mll, p=softmax(np.exp(log_d_g_t_list[mll])))
+
+            z_idx = np.random.choice(["A", "B", "C", "AB", "AC", "BC", "ABC"])
+            for key in self.best_particles.keys():
+                if hyp in self.best_particles[key]:
+                    z_idx = key
+                    break
 
             self.step_cnt += 1
-            return self.construct_action(particle_indices=mll)
-
-    def construct_action(self, particle_indices):
-        """Construct action given belief set and particle index
-
-        Args:
-            particle_indices (np.ndarray): particle indices
-
-        Returns:
-            action: intervention action
-        """
-
-        # filter the particles that are the best
-        gs_top, thetas_top = self.gs[particle_indices], self.thetas[particle_indices]
-
-        # create a random collection of interventions
-        interventions = np.random.choice(2, size=(len(particle_indices), 1))
-
-        return action, z_idx
+            return inter, HYPS[z_idx]
 
     def reset(self, *args, **kwargs) -> None:
         """Reset policy"""

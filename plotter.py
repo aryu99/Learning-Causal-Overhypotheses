@@ -106,18 +106,22 @@ if __name__ == "__main__":
     save_path = "./plots/"
 
     paths = [
-        "./logs/greedy_JointDiBS/",
+        # "./logs/greedy_JointDiBS/",
         "./logs/random_JointDiBS/",
-        "./logs/greedy_VQDiBS/",
+        "./logs/bald_JointDiBS/",
+        # "./logs/greedy_VQDiBS/",
         "./logs/random_VQDiBS/",
+        "./logs/bald_VQDiBS/",
         "./logs/pc_random/",
         "./logs/ppo2_lstm/",
     ]
     names = [
-        "DiBS-Greedy",
+        # "DiBS-Greedy",
         "DiBS-Rand",
-        "VQDiBS-Greedy",
+        "DiBS-BALD",
+        # "VQDiBS-Greedy",
         "VQDiBS-Rand",
+        "VQDiBS-BALD",
         "PC-Rand",
         "PPO2-LSTM"
     ]

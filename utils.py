@@ -12,7 +12,64 @@ from dibs.target import Data
 from copy import deepcopy
 from pathlib import Path
 
+import yaml
+from easydict import EasyDict
+from gym import Wrapper
+
 from hypotheses import HYPS
+
+
+class GaussianNoiseEnv(Wrapper):
+    def __init__(self, env, noise_level=0.1):
+        super().__init__(env)
+        self.noise_level = noise_level
+
+    def step(self, action):
+        obs, rew, done, info = self.env.step(action)
+        obs = obs.astype(np.float32)
+        obs += self.noise_level * np.random.randn(*obs.shape)
+        return obs, rew, done, info
+
+    def reset(self):
+        obs = self.env.reset()
+        obs = obs.astype(np.float32)
+        obs += self.noise_level * np.random.randn(*obs.shape)
+        self._current_gt_hypothesis = self.env._current_gt_hypothesis
+        return obs
+
+
+def read_experiment_config(path: str) -> dict:
+    """Read experiment configuration from file.
+
+    Args:
+        path (str): path to experiment configuration file
+
+    Returns:
+        dict: experiment configuration
+    """
+    with open(path, "r") as f:
+        exp_config = EasyDict(yaml.load(f, Loader=yaml.FullLoader))
+        ldict = {}
+        exec(exp_config["env"]["hypotheses"], globals(), ldict)
+        exp_config["env"]["hypotheses"] = ldict["hypotheses"]
+    return exp_config
+
+
+def read_env_config(path: str) -> dict:
+    """Read environment configuration from file.
+
+    Args:
+        path (str): path to environment configuration file
+
+    Returns:
+        dict: environment configuration
+    """
+    with open(path, "r") as f:
+        env_config = EasyDict(yaml.load(f, Loader=yaml.FullLoader))
+        ldict = {}
+        exec(env_config["hypotheses"], globals(), ldict)
+        env_config["hypotheses"] = ldict["hypotheses"]
+    return env_config
 
 
 def make_dirs(directory: str):
